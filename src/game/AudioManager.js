@@ -12,9 +12,9 @@ export class AudioManager {
         this.dataArray = null;
 
         // Configuration
-        this.volumeThreshold = 0.15;     // Lower threshold to catch quiet speech
-        this.minSilenceDuration = 150;
-        this.maxSilenceDuration = 300;
+        this.volumeThreshold = 0.20;     // Lower threshold to catch quiet speech
+        this.minSilenceDuration = 200;
+        this.maxSilenceDuration = 400;
 
         // State
         this.lastSpeechTime = Date.now();
@@ -142,7 +142,7 @@ export class AudioManager {
             // --- WATCHDOG --- 
             // If we hear speech for > 1.5s but the API hasn't said ANYTHING for > 2s
             // It's likely dead. Kill it.
-            if (this.continuousSpeechFrames > 15 && (Date.now() - this.lastApiActivity > 2000)) {
+            if (this.continuousSpeechFrames > 30 && (Date.now() - this.lastApiActivity > 4000)) {
                 console.warn("🐶 Watchdog bark! Audio detected but API silent. Forcing restart...");
                 this.continuousSpeechFrames = 0;
                 this.recognition.abort(); // abort() is harsher than stop(), kills it immediately
@@ -152,6 +152,7 @@ export class AudioManager {
 
             // 2. Logic: Should we cut?
             const silenceDuration = Date.now() - this.lastSpeechTime;
+            const sessionDuration = Date.now() - this.sessionStartTime;
 
             if (this.currentInterimLength > 0) {
                 const isLongPhrase = this.currentInterimLength > 20;
@@ -161,6 +162,12 @@ export class AudioManager {
                     console.log(`✂️ Cutting phrase. Length: ${this.currentInterimLength}, Silence: ${silenceDuration}ms`);
                     this.forceFinalize();
                 }
+            }
+            else if (silenceDuration > 1000 && sessionDuration > 30000) {
+                // If we've been running for >30s and have 1s of silence, refresh the connection
+                console.log("♻️ Proactive session refresh during silence");
+                this.recognition.stop(); // Graceful stop, not abort
+                this.sessionStartTime = Date.now(); // Reset tracker
             }
 
         }, 100);

@@ -43,7 +43,7 @@ export class VisualizerManager {
 
         const en = document.createElement('div');
         en.innerText = translation;
-        en.style.fontSize = '20px';
+        en.style.fontSize = '32px';
         en.style.color = '#cccccc';
 
         div.appendChild(zh);

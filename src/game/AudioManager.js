@@ -12,7 +12,7 @@ export class AudioManager {
         this.dataArray = null;
 
         // Configuration
-        this.volumeThreshold = 0.20;     // Lower threshold to catch quiet speech
+        this.volumeThreshold = 0.15;     // Lower threshold to catch quiet speech
         this.minSilenceDuration = 200;
         this.maxSilenceDuration = 400;
 

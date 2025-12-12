@@ -1,0 +1,154 @@
+body {
+  margin: 0;
+  overflow: hidden;
+  font-family: 'Arial', sans-serif;
+  background-color: #000;
+  color: white;
+}
+
+#game-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1;
+}
+
+#ui-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none;
+  /* Let clicks pass through to game if needed */
+}
+
+#score {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  font-size: 24px;
+  font-weight: bold;
+}
+
+#start-screen {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  background: rgba(0, 0, 0, 0.9);
+  padding: 40px;
+  border-radius: 10px;
+  pointer-events: auto;
+  min-width: 400px;
+  border: 1px solid #333;
+}
+
+#start-screen h1 {
+  font-size: 48px;
+  margin-bottom: 20px;
+  color: #ff0055;
+  text-shadow: 0 0 10px #ff0055;
+}
+
+#story-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.story-btn {
+  padding: 15px;
+  font-size: 18px;
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 5px;
+  cursor: pointer;
+  color: #fff;
+  text-align: left;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.story-btn:hover {
+  background: #222;
+  border-color: #00ff88;
+  transform: translateX(5px);
+}
+
+.story-title {
+  font-weight: bold;
+  color: #00ff88;
+}
+
+.story-desc {
+  font-size: 14px;
+  color: #888;
+}
+
+#back-btn {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  padding: 10px 20px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid #fff;
+  color: #fff;
+  cursor: pointer;
+  border-radius: 5px;
+  z-index: 10;
+  pointer-events: auto;
+}
+
+#back-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+#game-over-modal {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  background: rgba(0, 0, 0, 0.95);
+  padding: 50px;
+  border-radius: 15px;
+  border: 2px solid #00ff88;
+  pointer-events: auto;
+  z-index: 20;
+}
+
+#game-over-modal h1 {
+  color: #00ff88;
+  font-size: 48px;
+  margin-bottom: 20px;
+}
+
+#game-over-modal p {
+  font-size: 24px;
+  margin-bottom: 30px;
+}
+
+#restart-btn {
+  padding: 15px 30px;
+  font-size: 20px;
+  background: #00ff88;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  color: #000;
+  font-weight: bold;
+}
+
+#restart-btn:hover {
+  transform: scale(1.05);
+}

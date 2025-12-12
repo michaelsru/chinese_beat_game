@@ -1,4 +1,3 @@
-import { SceneManager } from './game/SceneManager.js';
 import { VisualizerManager } from './game/VisualizerManager.js';
 import { AudioManager } from './game/AudioManager.js';
 import { TranslationManager } from './game/TranslationManager.js';

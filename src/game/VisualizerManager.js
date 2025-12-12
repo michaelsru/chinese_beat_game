@@ -75,24 +75,40 @@ export class VisualizerManager {
     }
 
     finalizeInterim(text, translation) {
-        if (!text) return;
+        const lineObj = this.createLineElement(text, translation, false);
+        lineObj.id = Date.now() + Math.random(); // Unique ID
+        lineObj.isRemoved = false;
+
+        if (!text) return null;
+
+        let finalizedLine = null;
 
         if (this.activeLine) {
             this.activeLine.zh.innerText = text;
             this.activeLine.en.innerText = translation;
             this.activeLine.zh.style.color = '#00ff88'; // Turn green
+            finalizedLine = this.activeLine;
             this.activeLine = null;
         } else {
             const lineObj = this.createLineElement(text, translation, false);
             this.container.appendChild(lineObj.div);
             this.lines.push(lineObj);
             this.pruneLines();
+            finalizedLine = lineObj;
+        }
+        return finalizedLine;
+    }
+
+    updateLineTranslation(lineObj, translation) {
+        if (lineObj && !lineObj.isRemoved && lineObj.en) {
+            lineObj.en.innerText = translation;
         }
     }
 
     pruneLines() {
         while (this.lines.length > this.MAX_LINES) {
             const removed = this.lines.shift();
+            removed.isRemoved = true;
             if (this.container.contains(removed.div)) {
                 this.container.removeChild(removed.div);
             }

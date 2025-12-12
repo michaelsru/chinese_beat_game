@@ -7,6 +7,7 @@ export class TranslationManager {
 
     async translate(text) {
         if (!text || text.trim() === '') return '';
+        console.log('[Trans] Request:', text);
 
         try {
             // Use Google Translate undocumented API (better accuracy for CN->EN)
@@ -18,7 +19,9 @@ export class TranslationManager {
             // data[0][0][0] is the first segment translation.
             // We join all segments to get the full sentence.
             if (data && data[0]) {
-                return data[0].map(segment => segment[0]).join('');
+                const result = data[0].map(segment => segment[0]).join('');
+                console.log('[Trans] Success:', result);
+                return result;
             }
             return 'Translation Error';
         } catch (error) {

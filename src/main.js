@@ -11,37 +11,57 @@ class App {
     // Create container for subtitles
     this.visualizer = new VisualizerManager('subtitle-container');
     this.translator = new TranslationManager();
+    this.translationQueue = new Map(); // lineId -> pending promise
 
     this.committedInterim = "";
     this.isProcessingCut = false;
 
     this.audioManager = new AudioManager(async (final, interim) => {
-      // 1. Handle Final Result (Engine Authority)
       if (final) {
+        console.debug('[Main] 🟢 Engine Final:', final);
+        console.debug('[Main] 🧊 Current Buffer:', this.committedInterim);
         let remainingFinal = final;
         // Dedup against what we already committed
-        if (this.committedInterim && final.startsWith(this.committedInterim)) {
+        if (this.committedInterim) {
+          // Always strip the length of what we already finalized. 
+          // If the engine changed the past words ('Hello' -> 'Hullo'), we ignore the change 
+          // to prevent "HelloHullo" duplication on screen.
           remainingFinal = final.substring(this.committedInterim.length);
         }
 
         // If there's new content in Final, finalize it.
-        if (remainingFinal.trim()) {
-          try {
-            const translation = await this.translator.translate(remainingFinal);
-            this.visualizer.finalizeInterim(remainingFinal, translation);
-          } catch (e) { console.error(e); }
-        }
-
-        // Reset state for next sentence
+        // Reset state IMMEDIATELY for next sentence
+        // This ensures new speech (arriving while we translate) isn't blocked or mis-deduped.
         this.committedInterim = "";
         this.lastInterimTime = 0;
         this.lastInterimLength = 0;
         this.isProcessingCut = false;
+
+        if (remainingFinal.trim()) {
+          console.log('[Main] Finalizing Remaining:', remainingFinal);
+          const finalizedLine = this.visualizer.finalizeInterim(remainingFinal, "...");
+
+          const lineId = finalizedLine.id;
+          const translationPromise = this.translator.translate(remainingFinal)
+            .then(t => {
+              if (this.translationQueue.get(lineId) === translationPromise) {
+                console.debug('[Main] ✅ Queue: Translation applied for line:', lineId);
+                this.visualizer.updateLineTranslation(finalizedLine, t);
+                this.translationQueue.delete(lineId);
+              } else {
+                console.debug('[Main] ❌ Queue: Stale translation discarded for line:', lineId);
+              }
+            })
+            .catch(e => console.error(e));
+          console.debug('[Main] ➡️ Queueing translation for line:', lineId);
+          this.translationQueue.set(lineId, translationPromise);
+        }
         return;
       }
 
       // 2. Handle Interim Result (Manual Cutting)
       if (interim && !this.isProcessingCut) {
+        console.debug('[Main] 🟡 Interim:', interim, '| Buffer:', this.committedInterim);
         let effectiveInterim = interim;
         // Dedup
         if (this.committedInterim && interim.startsWith(this.committedInterim)) {
@@ -49,7 +69,13 @@ class App {
         } else if (this.committedInterim) {
           // Diverged (Engine corrected earlier words). 
           // We ignore slight divergences and trust the engine's new hypothesis is mostly new content
-          // or we pause processing. For now, assume sync.
+          // If the new interim is longer than what we committed, show the tail.
+          // Example: Committed "Hello," (6). Interim "Hello world" (11).
+          // We can't safely dedup, but we can assume the user added " world".
+          if (interim.length > this.committedInterim.length) {
+            console.warn('[Main] ⚠️ Divergence! Diff:', interim.substring(this.committedInterim.length));
+            effectiveInterim = interim.substring(this.committedInterim.length);
+          }
         }
 
         // Check for Punctuation Split
@@ -62,42 +88,50 @@ class App {
           const chunk = match[1] + match[2];
           const remainder = match[3];
 
+          console.log('[Main] ✂️ Punctuation Cut:', chunk);
+
           // Commit immediately to prevent re-processing
           this.committedInterim += chunk;
 
-          try {
-            const translation = await this.translator.translate(chunk);
-            this.visualizer.finalizeInterim(chunk, translation);
+          // Commit UI immediately with placeholder
+          const finalizedLine = this.visualizer.finalizeInterim(chunk, "...");
 
-            // If remainder exists, allow it to display as next interim
-            if (remainder.trim()) {
-              // We can optionally translate remainder here or let next frame do it.
-              // Let's let next frame do it to keep logic simple, 
-              // unless frame rate is low.
-              // But we locked processing! We must unlock.
-            }
-          } catch (e) { console.error(e); }
-
+          // Unlock processing IMMEDIATELY so we don't drop frames while translating
           this.isProcessingCut = false;
-          this.lastInterimTime = 0; // Reset throttle for new block
+          this.lastInterimTime = 0;
           this.lastInterimLength = 0;
 
-        } else {
-          // Standard Interim Update (Throttled)
-          const now = Date.now();
-          if (now - this.lastInterimTime > 600 || (effectiveInterim.length - this.lastInterimLength > 2)) {
-            this.lastInterimTime = now;
-            this.lastInterimLength = effectiveInterim.length;
-            try {
-              const translation = await this.translator.translate(effectiveInterim);
-              // Only show if we have something
-              if (effectiveInterim.trim()) {
-                this.visualizer.updateInterim(effectiveInterim, translation);
+          // Fetch translation in background
+          const lineId = finalizedLine.id;
+          const translationPromise = this.translator.translate(chunk)
+            .then(translation => {
+              if (this.translationQueue.get(lineId) === translationPromise) {
+                console.debug('[Main] ✅ Queue: Translation applied for line:', lineId);
+                this.visualizer.updateLineTranslation(finalizedLine, translation);
+                this.translationQueue.delete(lineId);
+              } else {
+                console.debug('[Main] ❌ Queue: Stale translation discarded for line:', lineId);
               }
-            } catch (e) { }
+            })
+            .catch(e => console.error(e));
+          console.debug('[Main] ➡️ Queueing translation for line:', lineId);
+          this.translationQueue.set(lineId, translationPromise);
+
+        } else {
+          // Standard Interim Update (Transcription Only)
+          if (effectiveInterim.trim()) {
+            this.visualizer.updateInterim(effectiveInterim, "...");
           }
         }
       }
+    }, () => {
+      // ON SESSION START / RESET
+      // The audio manager has restarted the engine (due to VAD or error).
+      // We must clear our committed buffer because the new engine session starts from scratch.
+      console.log("🔄 Session Reset: Clearing local buffers");
+      this.committedInterim = "";
+      this.isProcessingCut = false;
+      this.visualizer.updateInterim("", ""); // Clear flickering interim
     });
 
     this.lastTime = 0;

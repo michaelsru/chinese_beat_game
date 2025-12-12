@@ -1,24 +1,54 @@
 import { SceneManager } from './game/SceneManager.js';
-import { WordManager } from './game/WordManager.js';
+import { VisualizerManager } from './game/VisualizerManager.js';
 import { AudioManager } from './game/AudioManager.js';
-import { ScoreManager } from './game/ScoreManager.js';
-import { stories } from './data/stories.js';
+import { TranslationManager } from './game/TranslationManager.js';
 
-class Game {
+class App {
   constructor() {
     this.container = document.getElementById('game-container');
-    this.sceneManager = new SceneManager(this.container);
+    // this.sceneManager = new SceneManager(this.container); // Disabled 3D scene
 
-    // Pass onComplete callback
-    this.wordManager = new WordManager(this.sceneManager.scene, () => this.onGameComplete());
+    // Create container for subtitles
+    this.visualizer = new VisualizerManager('subtitle-container');
+    this.translator = new TranslationManager();
 
-    this.scoreManager = new ScoreManager();
+    this.lastInterimTime = 0;
+    this.lastInterimLength = 0;
 
-    this.audioManager = new AudioManager((final, interim) => {
-      if (!this.isPlaying) return;
-      const hit = this.wordManager.checkInput(final, interim);
-      if (hit) {
-        this.scoreManager.addScore(100);
+    this.audioManager = new AudioManager(async (final, interim) => {
+      const now = Date.now();
+
+      // Handle Final Result
+      if (final) {
+        console.log('Final:', final);
+        try {
+          const translation = await this.translator.translate(final);
+          this.visualizer.finalizeInterim(final, translation);
+        } catch (e) {
+          console.error(e);
+          this.visualizer.finalizeInterim(final, "Translation Failed");
+        }
+        // Reset interim trackers
+        this.lastInterimTime = 0;
+        this.lastInterimLength = 0;
+        return;
+      }
+
+      // Handle Interim Result (Throttled)
+      if (interim) {
+        // Throttle: Translate every 600ms OR if significant new text added (e.g. 4+ chars)
+        // Note: Chinese characters are information dense, so 2-3 chars is significant.
+        if (now - this.lastInterimTime > 600 || (interim.length - this.lastInterimLength > 2)) {
+          this.lastInterimTime = now;
+          this.lastInterimLength = interim.length;
+
+          try {
+            const translation = await this.translator.translate(interim);
+            this.visualizer.updateInterim(interim, translation);
+          } catch (e) {
+            // Silent fail for interim
+          }
+        }
       }
     });
 
@@ -29,66 +59,46 @@ class Game {
   }
 
   setupUI() {
-    const storyList = document.getElementById('story-list');
-    const startScreen = document.getElementById('start-screen');
-    const backBtn = document.getElementById('back-btn');
-    const restartBtn = document.getElementById('restart-btn');
-    const gameOverModal = document.getElementById('game-over-modal');
+    const uiLayer = document.getElementById('ui-layer');
+    uiLayer.innerHTML = `
+        <div style="position: absolute; top: 20px; left: 20px; color: white; pointer-events: auto; z-index: 100;">
+            <h1>Live Translator (CN -> EN)</h1>
+            <button id="toggle-btn" style="padding: 10px 20px; font-size: 18px; cursor: pointer;">Start Listening</button>
+            <div id="status" style="margin-top: 10px; opacity: 0.7;">Microphone off</div>
+        </div>
+    `;
 
-    // Back Button
-    backBtn.addEventListener('click', () => {
-      this.stopGame();
-    });
+    const toggleBtn = document.getElementById('toggle-btn');
+    const status = document.getElementById('status');
 
-    // Restart / Back to Menu from Modal
-    restartBtn.addEventListener('click', () => {
-      gameOverModal.style.display = 'none';
-      this.stopGame();
-    });
-
-    stories.forEach(story => {
-      const btn = document.createElement('div');
-      btn.className = 'story-btn';
-      btn.innerHTML = `
-                <span class="story-title">${story.title}</span>
-                <span class="story-desc">${story.description}</span>
-            `;
-      btn.onclick = () => {
-        this.wordManager.setSentences(story.sentences);
-        startScreen.style.display = 'none';
+    toggleBtn.addEventListener('click', () => {
+      if (this.isPlaying) {
+        this.stop();
+        toggleBtn.innerText = "Start Listening";
+        status.innerText = "Microphone off";
+        toggleBtn.style.background = ""; // Default
+      } else {
         this.start();
-      };
-      storyList.appendChild(btn);
+        toggleBtn.innerText = "Stop Listening";
+        status.innerText = "Listening...";
+        toggleBtn.style.background = "#ff4444";
+        toggleBtn.style.color = "white";
+      }
     });
+
+    // Handle resize logic or remove old listeners if any
   }
 
   start() {
     this.isPlaying = true;
-    this.scoreManager.reset();
-    document.getElementById('back-btn').style.display = 'block';
+    this.visualizer.clear();
     this.audioManager.start();
     this.loop(0);
   }
 
-  stopGame() {
+  stop() {
     this.isPlaying = false;
     this.audioManager.stop();
-    document.getElementById('back-btn').style.display = 'none';
-    document.getElementById('start-screen').style.display = 'block';
-
-    // Clear words
-    this.wordManager.setSentences([]);
-  }
-
-  onGameComplete() {
-    this.isPlaying = false;
-    this.audioManager.stop();
-    document.getElementById('back-btn').style.display = 'none';
-
-    const modal = document.getElementById('game-over-modal');
-    const finalScore = document.getElementById('final-score');
-    finalScore.innerText = `Final Score: ${this.scoreManager.score}`;
-    modal.style.display = 'block';
   }
 
   loop(time) {
@@ -99,10 +109,10 @@ class Game {
     const deltaTime = (time - this.lastTime) / 1000;
     this.lastTime = time;
 
-    this.wordManager.update(deltaTime);
-    this.sceneManager.render();
+    this.visualizer.update(deltaTime);
+    // this.sceneManager.render(); // Disabled 3D render
   }
 }
 
-// Initialize game
-new Game();
+// Initialize app
+new App();

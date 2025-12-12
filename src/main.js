@@ -14,6 +14,7 @@ class App {
     this.translationQueue = new Map(); // lineId -> pending promise
 
     this.committedInterim = "";
+    this.lastSeenInterim = "";
     this.isProcessingCut = false;
 
     this.audioManager = new AudioManager(async (final, interim) => {
@@ -33,6 +34,7 @@ class App {
         // Reset state IMMEDIATELY for next sentence
         // This ensures new speech (arriving while we translate) isn't blocked or mis-deduped.
         this.committedInterim = "";
+        this.lastSeenInterim = "";
         this.lastInterimTime = 0;
         this.lastInterimLength = 0;
         this.isProcessingCut = false;
@@ -61,6 +63,7 @@ class App {
 
       // 2. Handle Interim Result (Manual Cutting)
       if (interim && !this.isProcessingCut) {
+        this.lastSeenInterim = interim;
         console.debug('[Main] 🟡 Interim:', interim, '| Buffer:', this.committedInterim);
         let effectiveInterim = interim;
         // Dedup
@@ -129,7 +132,40 @@ class App {
       // The audio manager has restarted the engine (due to VAD or error).
       // We must clear our committed buffer because the new engine session starts from scratch.
       console.log("🔄 Session Reset: Clearing local buffers");
+
+      // SALVAGE LOGIC: Try to recover anything left in the buffer before killing it
+      if (this.lastSeenInterim) {
+        let salvage = this.lastSeenInterim;
+        if (this.committedInterim && salvage.startsWith(this.committedInterim)) {
+          salvage = salvage.substring(this.committedInterim.length);
+        } else if (this.committedInterim) {
+          // Divergence logic
+          if (salvage.length > this.committedInterim.length) {
+            salvage = salvage.substring(this.committedInterim.length);
+          } else {
+            salvage = ""; // Don't risk duplicating if shorter/mismatch
+          }
+        }
+
+        if (salvage.trim()) {
+          console.warn("⛑️ Watchdog Salvage! Recovering:", salvage);
+          const finalizedLine = this.visualizer.finalizeInterim(salvage, "...");
+
+          const lineId = finalizedLine.id;
+          const translationPromise = this.translator.translate(salvage)
+            .then(t => {
+              if (this.translationQueue.get(lineId) === translationPromise) {
+                this.visualizer.updateLineTranslation(finalizedLine, t);
+                this.translationQueue.delete(lineId);
+              }
+            })
+            .catch(e => console.error(e));
+          this.translationQueue.set(lineId, translationPromise);
+        }
+      }
+
       this.committedInterim = "";
+      this.lastSeenInterim = "";
       this.isProcessingCut = false;
       this.visualizer.updateInterim("", ""); // Clear flickering interim
     });

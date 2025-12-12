@@ -12,41 +12,89 @@ class App {
     this.visualizer = new VisualizerManager('subtitle-container');
     this.translator = new TranslationManager();
 
-    this.lastInterimTime = 0;
-    this.lastInterimLength = 0;
+    this.committedInterim = "";
+    this.isProcessingCut = false;
 
     this.audioManager = new AudioManager(async (final, interim) => {
-      const now = Date.now();
-
-      // Handle Final Result
+      // 1. Handle Final Result (Engine Authority)
       if (final) {
-        console.log('Final:', final);
-        try {
-          const translation = await this.translator.translate(final);
-          this.visualizer.finalizeInterim(final, translation);
-        } catch (e) {
-          console.error(e);
-          this.visualizer.finalizeInterim(final, "Translation Failed");
+        let remainingFinal = final;
+        // Dedup against what we already committed
+        if (this.committedInterim && final.startsWith(this.committedInterim)) {
+          remainingFinal = final.substring(this.committedInterim.length);
         }
-        // Reset interim trackers
+
+        // If there's new content in Final, finalize it.
+        if (remainingFinal.trim()) {
+          try {
+            const translation = await this.translator.translate(remainingFinal);
+            this.visualizer.finalizeInterim(remainingFinal, translation);
+          } catch (e) { console.error(e); }
+        }
+
+        // Reset state for next sentence
+        this.committedInterim = "";
         this.lastInterimTime = 0;
         this.lastInterimLength = 0;
+        this.isProcessingCut = false;
         return;
       }
 
-      // Handle Interim Result (Throttled)
-      if (interim) {
-        // Throttle: Translate every 600ms OR if significant new text added (e.g. 4+ chars)
-        // Note: Chinese characters are information dense, so 2-3 chars is significant.
-        if (now - this.lastInterimTime > 600 || (interim.length - this.lastInterimLength > 2)) {
-          this.lastInterimTime = now;
-          this.lastInterimLength = interim.length;
+      // 2. Handle Interim Result (Manual Cutting)
+      if (interim && !this.isProcessingCut) {
+        let effectiveInterim = interim;
+        // Dedup
+        if (this.committedInterim && interim.startsWith(this.committedInterim)) {
+          effectiveInterim = interim.substring(this.committedInterim.length);
+        } else if (this.committedInterim) {
+          // Diverged (Engine corrected earlier words). 
+          // We ignore slight divergences and trust the engine's new hypothesis is mostly new content
+          // or we pause processing. For now, assume sync.
+        }
+
+        // Check for Punctuation Split
+        // Matches: (Text)(Punctuation)(Remainder)
+        // Chinese: ， 。 ？ ！ ；  English: , . ? ! ;
+        const match = effectiveInterim.match(/^(.+?)([，。？！；,!?.])(.*)/);
+
+        if (match) {
+          this.isProcessingCut = true; // Lock to prevent race
+          const chunk = match[1] + match[2];
+          const remainder = match[3];
+
+          // Commit immediately to prevent re-processing
+          this.committedInterim += chunk;
 
           try {
-            const translation = await this.translator.translate(interim);
-            this.visualizer.updateInterim(interim, translation);
-          } catch (e) {
-            // Silent fail for interim
+            const translation = await this.translator.translate(chunk);
+            this.visualizer.finalizeInterim(chunk, translation);
+
+            // If remainder exists, allow it to display as next interim
+            if (remainder.trim()) {
+              // We can optionally translate remainder here or let next frame do it.
+              // Let's let next frame do it to keep logic simple, 
+              // unless frame rate is low.
+              // But we locked processing! We must unlock.
+            }
+          } catch (e) { console.error(e); }
+
+          this.isProcessingCut = false;
+          this.lastInterimTime = 0; // Reset throttle for new block
+          this.lastInterimLength = 0;
+
+        } else {
+          // Standard Interim Update (Throttled)
+          const now = Date.now();
+          if (now - this.lastInterimTime > 600 || (effectiveInterim.length - this.lastInterimLength > 2)) {
+            this.lastInterimTime = now;
+            this.lastInterimLength = effectiveInterim.length;
+            try {
+              const translation = await this.translator.translate(effectiveInterim);
+              // Only show if we have something
+              if (effectiveInterim.trim()) {
+                this.visualizer.updateInterim(effectiveInterim, translation);
+              }
+            } catch (e) { }
           }
         }
       }
